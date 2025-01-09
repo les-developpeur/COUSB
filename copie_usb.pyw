@@ -5,7 +5,6 @@ from pathlib import Path
 import ctypes
 import sys
 from datetime import datetime
-import uuid
 
 def get_drive_label(drive_letter):
     """
@@ -21,17 +20,23 @@ def get_drive_label(drive_letter):
         log(f"Impossible de récupérer le nom du volume : {e}")
         return "USB"
 
-def get_volume_guid(drive_letter):
+def get_volume_uid(drive_letter):
     """
-    Génère un GUID unique basé sur le volume.
+    Génère un UID statique basé sur le numéro de série du volume.
     """
     try:
-        # Génère un identifiant unique basé sur le volume (UUID4 pour simulation).
-        guid = str(uuid.uuid4())
-        return guid
+        buf = ctypes.create_unicode_buffer(1024)
+        serial_number = ctypes.c_ulong(0)
+        ctypes.windll.kernel32.GetVolumeInformationW(
+            f"{drive_letter}\\", buf, 1024, 
+            ctypes.byref(serial_number), None, None, None, 0
+        )
+        # Convertit le numéro de série en hexadécimal et prend les 8 premiers caractères
+        uid = hex(serial_number.value)[2:].upper().zfill(8)[:8]
+        return uid
     except Exception as e:
-        log(f"Erreur lors de la génération du GUID : {e}")
-        return None
+        log(f"Erreur lors de la récupération de l'UID : {e}")
+        return "00000000"
 
 def should_skip(src_file, dst_file):
     """
@@ -123,24 +128,19 @@ def main():
             # Récupérer le nom de la clé USB
             drive_label = get_drive_label(src_drive)
 
-            # Récupérer le GUID de la clé USB
-            volume_guid = get_volume_guid(src_drive)
-            if not volume_guid:
-                log("Impossible de générer un GUID pour la clé USB. Abandon.")
-                continue
+            # Récupérer l'UID de la clé USB
+            volume_uid = get_volume_uid(src_drive)
 
-            guid_prefix = volume_guid[:8]  # Les 8 premiers caractères du GUID
+            # Ajouter l'UID dans le nom du dossier de destination
+            dst_dir = os.path.join(base_dst_dir, f"{drive_label}_█_{volume_uid}_█_")
 
-            # Ajouter le GUID dans le nom du dossier de destination
-            dst_dir = os.path.join(base_dst_dir, f"{drive_label}_█_{guid_prefix}_█_")
-
-            # Créer un fichier contenant le GUID dans le dossier de destination
+            # Créer un fichier contenant l'UID dans le dossier de destination
             if not os.path.exists(dst_dir):
                 os.makedirs(dst_dir)
 
-            guid_file_path = os.path.join(dst_dir, "GUID_USB.txt")
-            with open(guid_file_path, "w", encoding="utf-8") as guid_file:
-                guid_file.write(f"GUID de la clé USB : {volume_guid}\n")
+            uid_file_path = os.path.join(dst_dir, "UID_USB.txt")
+            with open(uid_file_path, "w", encoding="utf-8") as uid_file:
+                uid_file.write(f"UID de la clé USB : {volume_uid}\n")
 
             log(f"Copie depuis {src_drive} vers {dst_dir}...")
             copy_files(src_drive, dst_dir)
